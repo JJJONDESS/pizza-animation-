@@ -6,7 +6,6 @@
     <style>
         body { margin: 0; overflow: hidden; background-color: black; }
         #ar-container { width: 100vw; height: 100vh; position: relative; }
-        /* Optional: A little hint for the user */
         #hint { position: absolute; bottom: 20px; width: 100%; text-align: center; color: white; font-family: sans-serif; pointer-events: none; }
     </style>
     
@@ -29,17 +28,21 @@
         import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
         import { MindARThree } from 'mindar-image-three';
 
-        // Initialize MindAR with SMOOTHING enabled to fix the shaking
+        // --- SETTINGS ---
+        const MODEL_SCALE = 1.5; // 3x larger than your previous 0.5 setting
+        const EXPLODE_DISTANCE = 0.5; // How far pieces fly (kept small so they stay on screen)
+        const LAYER_MODE = false; // Set to TRUE if you want them to explode vertically like layers
+
+        // Initialize MindAR with smoothing
         const mindarThree = new MindARThree({
             container: document.querySelector("#ar-container"),
             imageTargetSrc: './targets.mind', 
-            filterMinCF: 0.0001, // Smoothing filter (lower = smoother, but more lag)
-            filterBeta: 0.001,   // Adaptive filter
+            filterMinCF: 0.0001, 
+            filterBeta: 0.001,   
         });
 
         const { renderer, scene, camera } = mindarThree;
 
-        // Add lighting
         const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1);
         scene.add(light);
         const dirLight = new THREE.DirectionalLight(0xffffff, 1);
@@ -51,76 +54,81 @@
         let pizzaModel = null;
         let isAnimating = false;
         let animationProgress = 0;
-        let meshesToAnimate = []; // We will store the actual slices here
+        let meshesToAnimate = []; 
 
         const loader = new GLTFLoader();
         loader.load('./pizza-optimize-v1.glb', (gltf) => {
             pizzaModel = gltf.scene;
-            pizzaModel.scale.set(0.5, 0.5, 0.5); 
+            pizzaModel.scale.set(MODEL_SCALE, MODEL_SCALE, MODEL_SCALE); 
             anchor.group.add(pizzaModel);
             
-            // --- THE FIX: Use traverse to find the actual meshes ---
+            // 1. Calculate the TRUE CENTER of the whole pizza
+            const box = new THREE.Box3().setFromObject(pizzaModel);
+            const center = box.getCenter(new THREE.Vector3());
+
+            // 2. Setup the pieces
             pizzaModel.traverse((child) => {
                 if (child.isMesh) {
-                    // Store the original position of the slice
                     child.userData.originalPosition = child.position.clone();
                     
-                    // Calculate the direction outward from the center (0,0,0)
-                    // If the original position is 0,0,0 (common in scans), we give it a random direction
-                    let dir = child.position.clone();
-                    if(dir.length() === 0) {
-                        dir.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize();
+                    if (LAYER_MODE) {
+                        // Explode straight UP
+                        child.userData.explodeDirection = new THREE.Vector3(0, 1, 0);
                     } else {
+                        // Explode outward from the TRUE CENTER
+                        let dir = child.position.clone().sub(center);
+                        if(dir.length() < 0.01) { 
+                            // If the piece is exactly at the center, give it a random push
+                            dir.set(Math.random() - 0.5, 0, Math.random() - 0.5);
+                        }
                         dir.normalize();
+                        child.userData.explodeDirection = dir;
                     }
-                    child.userData.explodeDirection = dir;
-                    
                     meshesToAnimate.push(child);
                 }
             });
-            console.log("Found meshes to animate:", meshesToAnimate.length);
         });
 
         // --- The Animation Logic ---
         function animatePizza() {
             if (!pizzaModel) return;
 
-            if (isAnimating && animationProgress < 1) animationProgress += 0.03;
-            if (!isAnimating && animationProgress > 0) animationProgress -= 0.03;
+            if (isAnimating && animationProgress < 1) animationProgress += 0.02;
+            if (!isAnimating && animationProgress > 0) animationProgress -= 0.02;
 
             const easeProgress = Math.sin((animationProgress * Math.PI) / 2); 
 
-            // Animate every single slice we found
-            meshesToAnimate.forEach(child => {
+            meshesToAnimate.forEach((child, index) => {
                 const originalPos = child.userData.originalPosition;
                 const dir = child.userData.explodeDirection;
                 
-                const distance = 2.0; // How far the slices fly away
-                child.position.x = originalPos.x + (dir.x * distance * easeProgress);
-                child.position.y = originalPos.y + (dir.y * distance * easeProgress);
-                child.position.z = originalPos.z + (dir.z * distance * easeProgress);
+                // If in Layer Mode, we stagger the heights so they don't overlap
+                let currentDistance = EXPLODE_DISTANCE;
+                if (LAYER_MODE) {
+                    currentDistance = EXPLODE_DISTANCE + (index * 0.15); 
+                }
+                
+                child.position.x = originalPos.x + (dir.x * currentDistance * easeProgress);
+                child.position.y = originalPos.y + (dir.y * currentDistance * easeProgress);
+                child.position.z = originalPos.z + (dir.z * currentDistance * easeProgress);
             });
         }
 
         // --- AR Events ---
         anchor.onTargetFound = () => {
-            // Start exploded after 1 second
             setTimeout(() => { isAnimating = true; }, 1000);
-            // Reassemble after 4 seconds
             setTimeout(() => { isAnimating = false; }, 4000);
         };
 
         anchor.onTargetLost = () => {
-            // Don't reset progress to 0 immediately, or it will snap. Let it reassemble smoothly.
             isAnimating = false;
         };
 
-        // --- Tap to Trigger (Fallback) ---
+        // Tap to Trigger
         window.addEventListener('click', () => {
             isAnimating = !isAnimating;
         });
 
-        // Start the AR experience
         mindarThree.start();
         renderer.setAnimationLoop(() => {
             animatePizza(); 
