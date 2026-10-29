@@ -28,11 +28,6 @@
         import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
         import { MindARThree } from 'mindar-image-three';
 
-        // --- SETTINGS ---
-        const MODEL_SCALE = 1.5; // 3x larger than your previous 0.5 setting
-        const EXPLODE_DISTANCE = 0.5; // How far pieces fly (kept small so they stay on screen)
-        const LAYER_MODE = false; // Set to TRUE if you want them to explode vertically like layers
-
         // Initialize MindAR with smoothing
         const mindarThree = new MindARThree({
             container: document.querySelector("#ar-container"),
@@ -43,8 +38,7 @@
 
         const { renderer, scene, camera } = mindarThree;
 
-        const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1);
-        scene.add(light);
+        scene.add(new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1));
         const dirLight = new THREE.DirectionalLight(0xffffff, 1);
         dirLight.position.set(0, 10, 5);
         scene.add(dirLight);
@@ -55,35 +49,42 @@
         let isAnimating = false;
         let animationProgress = 0;
         let meshesToAnimate = []; 
+        
+        // --- SETTINGS ---
+        const EXPLODE_DISTANCE = 0.8; // How far pieces fly (relative to the pizza's size)
 
         const loader = new GLTFLoader();
         loader.load('./pizza-optimize-v1.glb', (gltf) => {
             pizzaModel = gltf.scene;
-            pizzaModel.scale.set(MODEL_SCALE, MODEL_SCALE, MODEL_SCALE); 
-            anchor.group.add(pizzaModel);
             
-            // 1. Calculate the TRUE CENTER of the whole pizza
+            // 1. Calculate the true size and center of your scanned pizza
             const box = new THREE.Box3().setFromObject(pizzaModel);
+            const size = box.getSize(new THREE.Vector3());
             const center = box.getCenter(new THREE.Vector3());
 
-            // 2. Setup the pieces
+            // 2. Shift the model so its exact center is at (0,0,0)
+            pizzaModel.position.sub(center);
+
+            // 3. Auto-scale the model to fit the marker perfectly (max dimension = 1)
+            const maxDim = Math.max(size.x, size.y, size.z);
+            const scaleFactor = 1.0 / maxDim; 
+            pizzaModel.scale.setScalar(scaleFactor * 2.0); // Change '2.0' to make the pizza bigger/smaller overall
+
+            anchor.group.add(pizzaModel);
+            
+            // 4. Setup the meshes for explosion
             pizzaModel.traverse((child) => {
                 if (child.isMesh) {
                     child.userData.originalPosition = child.position.clone();
                     
-                    if (LAYER_MODE) {
-                        // Explode straight UP
-                        child.userData.explodeDirection = new THREE.Vector3(0, 1, 0);
-                    } else {
-                        // Explode outward from the TRUE CENTER
-                        let dir = child.position.clone().sub(center);
-                        if(dir.length() < 0.01) { 
-                            // If the piece is exactly at the center, give it a random push
-                            dir.set(Math.random() - 0.5, 0, Math.random() - 0.5);
-                        }
-                        dir.normalize();
-                        child.userData.explodeDirection = dir;
+                    // Calculate direction outward from the TRUE center (0,0,0)
+                    let dir = child.position.clone();
+                    if (dir.length() < 0.01) {
+                        dir.set(0, 1, 0); // Fallback just in case a piece is exactly at center
                     }
+                    dir.normalize();
+                    child.userData.explodeDirection = dir;
+                    
                     meshesToAnimate.push(child);
                 }
             });
@@ -93,24 +94,19 @@
         function animatePizza() {
             if (!pizzaModel) return;
 
-            if (isAnimating && animationProgress < 1) animationProgress += 0.02;
-            if (!isAnimating && animationProgress > 0) animationProgress -= 0.02;
+            if (isAnimating && animationProgress < 1) animationProgress += 0.03;
+            if (!isAnimating && animationProgress > 0) animationProgress -= 0.03;
 
             const easeProgress = Math.sin((animationProgress * Math.PI) / 2); 
 
-            meshesToAnimate.forEach((child, index) => {
+            meshesToAnimate.forEach(child => {
                 const originalPos = child.userData.originalPosition;
                 const dir = child.userData.explodeDirection;
                 
-                // If in Layer Mode, we stagger the heights so they don't overlap
-                let currentDistance = EXPLODE_DISTANCE;
-                if (LAYER_MODE) {
-                    currentDistance = EXPLODE_DISTANCE + (index * 0.15); 
-                }
-                
-                child.position.x = originalPos.x + (dir.x * currentDistance * easeProgress);
-                child.position.y = originalPos.y + (dir.y * currentDistance * easeProgress);
-                child.position.z = originalPos.z + (dir.z * currentDistance * easeProgress);
+                // Move the piece outward
+                child.position.x = originalPos.x + (dir.x * EXPLODE_DISTANCE * easeProgress);
+                child.position.y = originalPos.y + (dir.y * EXPLODE_DISTANCE * easeProgress);
+                child.position.z = originalPos.z + (dir.z * EXPLODE_DISTANCE * easeProgress);
             });
         }
 
