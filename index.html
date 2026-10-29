@@ -1,67 +1,107 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Pizza AR Exploder</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>Pizza AR Explosion</title>
     <style>
-        body { margin: 0; overflow: hidden; }
+        body { margin: 0; overflow: hidden; background-color: black; }
         #ar-container { width: 100vw; height: 100vh; position: relative; }
-        #scene-container { width: 100%; height: 100%; }
     </style>
-</head>
-<body>
-    <div id="ar-container">
-        <!-- This is the container where the 3D scene will be created -->
-        <div id="scene-container"></div>
-    </div>
-
-    <!-- Import Three.js and MindAR from CDNs -->
+    <!-- Load MindAR and Three.js -->
     <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-three.prod.js"></script>
-    
-    <!-- Import the gltf-exploder plugin -->
-    <script type="module">
-        import { GLTFExploder } from 'https://cdn.jsdelivr.net/npm/gltf-exploder@1.0.2/+esm';
+</head>
+<body>
+    <div id="ar-container"></div>
 
-        // --- Setup MindAR and Three.js ---
+    <script>
         const { MindARThree } = window.MINDAR.IMAGE;
+        
+        // Initialize MindAR
         const mindarThree = new MindARThree({
-            container: document.querySelector("#scene-container"),
-            imageTargetSrc: './pizza-target.mind', // <-- MAKE SURE THIS FILE IS IN YOUR REPO
+            container: document.querySelector("#ar-container"),
+            imageTargetSrc: './pizza-target.mind', // Ensure this matches your file name
         });
 
         const { renderer, scene, camera } = mindarThree;
 
-        // Add a simple light to the scene
+        // Add lighting so the pizza looks good
         const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1);
         scene.add(light);
+        const dirLight = new THREE.DirectionalLight(0xffffff, 1);
+        dirLight.position.set(0, 10, 5);
+        scene.add(dirLight);
 
-        // --- Load the Model and Setup the Exploder ---
-        // REPLACE this URL with the direct link to your hosted pizza-split.glb file
-        const modelUrl = 'YOUR_DIRECT_DOWNLOAD_LINK_TO_pizza-split.glb';
+        // Setup the anchor (where the model will attach)
+        const anchor = mindarThree.addAnchor(0);
+        
+        let pizzaModel = null;
+        let isAnimating = false;
+        let animationProgress = 0;
 
-        const exploder = new GLTFExploder({
-            viewport: '#scene-container', 
-            model: modelUrl,             
-            scene: scene,                
-            camera: camera,              
-            renderer: renderer,
-            createUI: false, // We will trigger the explosion automatically, not with a UI
-            adaptModel: true,
+        // Load the 3D Model
+        const loader = new THREE.GLTFLoader();
+        loader.load('./pizza-optimized.glb', (gltf) => {
+            pizzaModel = gltf.scene;
+            
+            // Scale the model down if it's too big for the image
+            pizzaModel.scale.set(0.5, 0.5, 0.5); 
+            
+            // Add the model to the AR anchor
+            anchor.group.add(pizzaModel);
+            
+            // Store the original position and calculate an explosion direction for each slice
+            pizzaModel.children.forEach(child => {
+                child.userData.originalPosition = child.position.clone();
+                // Create an outward vector based on where the piece is relative to the center
+                child.userData.explodeDirection = child.position.clone().normalize(); 
+            });
         });
 
-        // --- Trigger the Animation on Target Found ---
-        mindarThree.addAnchor(0).onTargetFound = () => {
-            // This event fires when the camera sees the target image
-            console.log("Target found! Exploding pizza...");
-            // Trigger the radial explosion animation
-            exploder.explode(); 
+        // --- The Animation Logic ---
+        // This runs every frame to smoothly move the pieces
+        function animatePizza() {
+            if (!pizzaModel) return;
+
+            // Smoothly increase or decrease the animation progress
+            if (isAnimating && animationProgress < 1) animationProgress += 0.02;
+            if (!isAnimating && animationProgress > 0) animationProgress -= 0.02;
+
+            // Use an easing function for a smoother "pop" effect
+            const easeProgress = Math.sin((animationProgress * Math.PI) / 2); 
+
+            pizzaModel.children.forEach(child => {
+                const originalPos = child.userData.originalPosition;
+                const dir = child.userData.explodeDirection;
+                
+                // Move the piece outward based on progress
+                const distance = 2.0; // How far the slices fly away
+                child.position.x = originalPos.x + (dir.x * distance * easeProgress);
+                child.position.y = originalPos.y + (dir.y * distance * easeProgress);
+                child.position.z = originalPos.z + (dir.z * distance * easeProgress);
+            });
+        }
+
+        // --- AR Events ---
+        anchor.onTargetFound = () => {
+            console.log("Target found! Starting explosion...");
+            // Wait 1 second after finding the image, then explode
+            setTimeout(() => { isAnimating = true; }, 1000);
+            
+            // Wait 4 seconds, then put it back together
+            setTimeout(() => { isAnimating = false; }, 4000);
         };
 
-        // --- Start the AR Experience ---
+        anchor.onTargetLost = () => {
+            // Reset when the camera looks away
+            isAnimating = false;
+            animationProgress = 0;
+        };
+
+        // Start the AR experience
         mindarThree.start();
         renderer.setAnimationLoop(() => {
+            animatePizza(); // Run our custom animation
             renderer.render(scene, camera);
         });
     </script>
