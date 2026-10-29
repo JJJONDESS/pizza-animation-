@@ -7,20 +7,30 @@
         body { margin: 0; overflow: hidden; background-color: black; }
         #ar-container { width: 100vw; height: 100vh; position: relative; }
     </style>
-    <!-- Load MindAR and Three.js -->
-    <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-three.prod.js"></script>
+    
+    <!-- Use an import map to load Three.js and its addons as modules -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/",
+                "mindar-image-three": "https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-three.prod.js"
+            }
+        }
+    </script>
 </head>
 <body>
     <div id="ar-container"></div>
 
-    <script>
-        const { MindARThree } = window.MINDAR.IMAGE;
-        
+    <script type="module">
+        import * as THREE from 'three';
+        import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+        import { MindARThree } from 'mindar-image-three';
+
         // Initialize MindAR
         const mindarThree = new MindARThree({
             container: document.querySelector("#ar-container"),
-            imageTargetSrc: './targets.mind', // Ensure this matches your file name
+            imageTargetSrc: './targets.mind', // Make sure this matches your file name
         });
 
         const { renderer, scene, camera } = mindarThree;
@@ -40,7 +50,7 @@
         let animationProgress = 0;
 
         // Load the 3D Model
-        const loader = new THREE.GLTFLoader();
+        const loader = new GLTFLoader();
         loader.load('./pizza-optimize-v1.glb', (gltf) => {
             pizzaModel = gltf.scene;
             
@@ -59,7 +69,6 @@
         });
 
         // --- The Animation Logic ---
-        // This runs every frame to smoothly move the pieces
         function animatePizza() {
             if (!pizzaModel) return;
 
