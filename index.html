@@ -6,9 +6,10 @@
     <style>
         body { margin: 0; overflow: hidden; background-color: black; }
         #ar-container { width: 100vw; height: 100vh; position: relative; }
+        /* Optional: A little hint for the user */
+        #hint { position: absolute; bottom: 20px; width: 100%; text-align: center; color: white; font-family: sans-serif; pointer-events: none; }
     </style>
     
-    <!-- Use an import map to load Three.js and its addons as modules -->
     <script type="importmap">
         {
             "imports": {
@@ -21,69 +22,79 @@
 </head>
 <body>
     <div id="ar-container"></div>
+    <div id="hint">Tap screen to explode/reassemble</div>
 
     <script type="module">
         import * as THREE from 'three';
         import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
         import { MindARThree } from 'mindar-image-three';
 
-        // Initialize MindAR
+        // Initialize MindAR with SMOOTHING enabled to fix the shaking
         const mindarThree = new MindARThree({
             container: document.querySelector("#ar-container"),
-            imageTargetSrc: './targets.mind', // Make sure this matches your file name
+            imageTargetSrc: './targets.mind', 
+            filterMinCF: 0.0001, // Smoothing filter (lower = smoother, but more lag)
+            filterBeta: 0.001,   // Adaptive filter
         });
 
         const { renderer, scene, camera } = mindarThree;
 
-        // Add lighting so the pizza looks good
+        // Add lighting
         const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1);
         scene.add(light);
         const dirLight = new THREE.DirectionalLight(0xffffff, 1);
         dirLight.position.set(0, 10, 5);
         scene.add(dirLight);
 
-        // Setup the anchor (where the model will attach)
         const anchor = mindarThree.addAnchor(0);
         
         let pizzaModel = null;
         let isAnimating = false;
         let animationProgress = 0;
+        let meshesToAnimate = []; // We will store the actual slices here
 
-        // Load the 3D Model
         const loader = new GLTFLoader();
         loader.load('./pizza-optimize-v1.glb', (gltf) => {
             pizzaModel = gltf.scene;
-            
-            // Scale the model down if it's too big for the image
             pizzaModel.scale.set(0.5, 0.5, 0.5); 
-            
-            // Add the model to the AR anchor
             anchor.group.add(pizzaModel);
             
-            // Store the original position and calculate an explosion direction for each slice
-            pizzaModel.children.forEach(child => {
-                child.userData.originalPosition = child.position.clone();
-                // Create an outward vector based on where the piece is relative to the center
-                child.userData.explodeDirection = child.position.clone().normalize(); 
+            // --- THE FIX: Use traverse to find the actual meshes ---
+            pizzaModel.traverse((child) => {
+                if (child.isMesh) {
+                    // Store the original position of the slice
+                    child.userData.originalPosition = child.position.clone();
+                    
+                    // Calculate the direction outward from the center (0,0,0)
+                    // If the original position is 0,0,0 (common in scans), we give it a random direction
+                    let dir = child.position.clone();
+                    if(dir.length() === 0) {
+                        dir.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize();
+                    } else {
+                        dir.normalize();
+                    }
+                    child.userData.explodeDirection = dir;
+                    
+                    meshesToAnimate.push(child);
+                }
             });
+            console.log("Found meshes to animate:", meshesToAnimate.length);
         });
 
         // --- The Animation Logic ---
         function animatePizza() {
             if (!pizzaModel) return;
 
-            // Smoothly increase or decrease the animation progress
-            if (isAnimating && animationProgress < 1) animationProgress += 0.02;
-            if (!isAnimating && animationProgress > 0) animationProgress -= 0.02;
+            if (isAnimating && animationProgress < 1) animationProgress += 0.03;
+            if (!isAnimating && animationProgress > 0) animationProgress -= 0.03;
 
-            // Use an easing function for a smoother "pop" effect
             const easeProgress = Math.sin((animationProgress * Math.PI) / 2); 
 
-            pizzaModel.children.forEach(child => {
+            // Animate every single slice we found
+            meshesToAnimate.forEach(child => {
                 const originalPos = child.userData.originalPosition;
                 const dir = child.userData.explodeDirection;
                 
-                // Move the piece outward based on progress
                 const distance = 2.0; // How far the slices fly away
                 child.position.x = originalPos.x + (dir.x * distance * easeProgress);
                 child.position.y = originalPos.y + (dir.y * distance * easeProgress);
@@ -93,24 +104,26 @@
 
         // --- AR Events ---
         anchor.onTargetFound = () => {
-            console.log("Target found! Starting explosion...");
-            // Wait 1 second after finding the image, then explode
+            // Start exploded after 1 second
             setTimeout(() => { isAnimating = true; }, 1000);
-            
-            // Wait 4 seconds, then put it back together
+            // Reassemble after 4 seconds
             setTimeout(() => { isAnimating = false; }, 4000);
         };
 
         anchor.onTargetLost = () => {
-            // Reset when the camera looks away
+            // Don't reset progress to 0 immediately, or it will snap. Let it reassemble smoothly.
             isAnimating = false;
-            animationProgress = 0;
         };
+
+        // --- Tap to Trigger (Fallback) ---
+        window.addEventListener('click', () => {
+            isAnimating = !isAnimating;
+        });
 
         // Start the AR experience
         mindarThree.start();
         renderer.setAnimationLoop(() => {
-            animatePizza(); // Run our custom animation
+            animatePizza(); 
             renderer.render(scene, camera);
         });
     </script>
