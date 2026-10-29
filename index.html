@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pizza AR Exploder</title>
+    <style>
+        body { margin: 0; overflow: hidden; }
+        #ar-container { width: 100vw; height: 100vh; position: relative; }
+        #scene-container { width: 100%; height: 100%; }
+    </style>
+</head>
+<body>
+    <div id="ar-container">
+        <!-- This is the container where the 3D scene will be created -->
+        <div id="scene-container"></div>
+    </div>
+
+    <!-- Import Three.js and MindAR from CDNs -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-three.prod.js"></script>
+    
+    <!-- Import the gltf-exploder plugin -->
+    <script type="module">
+        import { GLTFExploder } from 'https://cdn.jsdelivr.net/npm/gltf-exploder@1.0.2/+esm';
+
+        // --- Setup MindAR and Three.js ---
+        const { MindARThree } = window.MINDAR.IMAGE;
+        const mindarThree = new MindARThree({
+            container: document.querySelector("#scene-container"),
+            imageTargetSrc: './pizza-target.mind', // <-- MAKE SURE THIS FILE IS IN YOUR REPO
+        });
+
+        const { renderer, scene, camera } = mindarThree;
+
+        // Add a simple light to the scene
+        const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1);
+        scene.add(light);
+
+        // --- Load the Model and Setup the Exploder ---
+        // REPLACE this URL with the direct link to your hosted pizza-split.glb file
+        const modelUrl = 'YOUR_DIRECT_DOWNLOAD_LINK_TO_pizza-split.glb';
+
+        const exploder = new GLTFExploder({
+            viewport: '#scene-container', 
+            model: modelUrl,             
+            scene: scene,                
+            camera: camera,              
+            renderer: renderer,
+            createUI: false, // We will trigger the explosion automatically, not with a UI
+            adaptModel: true,
+        });
+
+        // --- Trigger the Animation on Target Found ---
+        mindarThree.addAnchor(0).onTargetFound = () => {
+            // This event fires when the camera sees the target image
+            console.log("Target found! Exploding pizza...");
+            // Trigger the radial explosion animation
+            exploder.explode(); 
+        };
+
+        // --- Start the AR Experience ---
+        mindarThree.start();
+        renderer.setAnimationLoop(() => {
+            renderer.render(scene, camera);
+        });
+    </script>
+</body>
+</html>
