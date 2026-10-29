@@ -20,7 +20,7 @@
         // Initialize MindAR
         const mindarThree = new MindARThree({
             container: document.querySelector("#ar-container"),
-            imageTargetSrc: './pizza-target.mind', // Ensure this matches your file name
+            imageTargetSrc: './targets.mind', // Ensure this matches your file name
         });
 
         const { renderer, scene, camera } = mindarThree;
@@ -41,7 +41,7 @@
 
         // Load the 3D Model
         const loader = new THREE.GLTFLoader();
-        loader.load('./pizza-optimized.glb', (gltf) => {
+        loader.load('./pizza-optimize-v1.glb', (gltf) => {
             pizzaModel = gltf.scene;
             
             // Scale the model down if it's too big for the image
